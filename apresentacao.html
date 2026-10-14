@@ -1,0 +1,699 @@
+<meta charset="utf-8">
+<title>F1 Race Position Predictor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Apresentacao de portfolio. Para adicionar seu nome/contato: ver rodape do slide 08 (procure por "PORTFOLIO · CIENCIA DE DADOS"). -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+  /* ============================================================
+     F1 RACE POSITION PREDICTOR — deck
+     Visual world: pit-wall timing screen. Deliberately single-theme
+     (broadcast graphics live in one visual world). Every surface and
+     color is painted explicitly so the page holds on any host ground.
+     ============================================================ */
+  :root {
+    --ground:   #0B0E12;   /* cool near-black, LCD pit monitor */
+    --ground-2: #0E1319;
+    --panel:    #141A21;   /* raised panel */
+    --panel-2:  #1B222B;
+    --line:     #28313C;   /* hairline dividers */
+    --line-hi:  #3A4653;
+    --ink:      #EAF0F6;   /* cool white */
+    --ink-mid:  #A9B4C0;
+    --ink-dim:  #6E7A87;
+    --speed:    #FF1E2D;   /* F1 red — the single bold accent */
+    --purple:   #B44BE8;   /* timing "fastest" — used once, for the winning model */
+    --gold:     #E4B73B;   /* podium */
+    --blue:     #4C93E0;   /* points */
+    --grey:     #7C8996;   /* out of points */
+    --green:    #37D07A;   /* positive delta */
+
+    --f-disp: "Saira Condensed", "Arial Narrow", "Helvetica Neue", sans-serif;
+    --f-body: "IBM Plex Sans", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+    --maxw: 1120px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html {
+    scroll-behavior: smooth;
+    scroll-snap-type: y proximity;
+    background: var(--ground);
+  }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+  body {
+    position: relative;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--f-body);
+    font-size: 17px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: clip;   /* guard against wide content without creating a scroll container */
+  }
+
+  /* faint scanline / carbon texture on the ground */
+  .bg-tex {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background:
+      repeating-linear-gradient(0deg, rgba(255,255,255,.014) 0 1px, transparent 1px 3px),
+      radial-gradient(120% 80% at 50% -10%, rgba(76,147,224,.06), transparent 60%);
+  }
+
+  /* ---------- left rail: team-colour stripe + section ticks ---------- */
+  .rail {
+    position: fixed; top: 0; left: 0; bottom: 0; width: 6px; z-index: 40;
+    background: linear-gradient(180deg,
+      var(--speed) 0 12%, var(--gold) 12% 26%, var(--blue) 26% 44%,
+      var(--purple) 44% 60%, var(--green) 60% 76%, var(--ink-dim) 76% 100%);
+  }
+
+  /* ---------- HUD: live dot + slide counter ---------- */
+  .hud {
+    position: fixed; top: 18px; right: 20px; z-index: 40;
+    display: flex; align-items: center; gap: 12px;
+    font-family: var(--f-mono); font-size: 12px; letter-spacing: .12em;
+    color: var(--ink-mid);
+    background: rgba(11,14,18,.72);
+    border: 1px solid var(--line);
+    padding: 7px 12px; backdrop-filter: blur(6px);
+  }
+  .hud .live { display: flex; align-items: center; gap: 7px; color: var(--speed); }
+  .hud .dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--speed);
+    box-shadow: 0 0 0 0 rgba(255,30,45,.7); animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(255,30,45,.55); }
+    70%  { box-shadow: 0 0 0 7px rgba(255,30,45,0); }
+    100% { box-shadow: 0 0 0 0 rgba(255,30,45,0); }
+  }
+  .hud .count { color: var(--ink); }
+  @media (prefers-reduced-motion: reduce) { .hud .dot { animation: none; } }
+
+  /* ---------- bottom nav ---------- */
+  .nav {
+    position: fixed; left: 50%; transform: translateX(-50%); bottom: 16px; z-index: 40;
+    display: flex; align-items: center; gap: 14px;
+    background: rgba(11,14,18,.78); border: 1px solid var(--line);
+    padding: 8px 14px; backdrop-filter: blur(6px);
+  }
+  .nav button {
+    font-family: var(--f-mono); font-size: 13px; color: var(--ink-mid);
+    background: transparent; border: 1px solid var(--line-hi); cursor: pointer;
+    width: 30px; height: 26px; line-height: 1; transition: all .15s;
+  }
+  .nav button:hover { color: var(--ink); border-color: var(--speed); }
+  .nav button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+  .dots { display: flex; gap: 7px; }
+  .dots i {
+    width: 7px; height: 7px; background: var(--line-hi); cursor: pointer;
+    transition: all .2s; display: block;
+  }
+  .dots i.on { background: var(--speed); transform: scale(1.35); }
+  .nav .hint { font-family: var(--f-mono); font-size: 11px; color: var(--ink-dim); letter-spacing: .08em; }
+  @media (max-width: 640px) { .nav .hint { display: none; } }
+
+  /* ---------- slide shell ---------- */
+  main { position: relative; z-index: 1; }
+  .slide {
+    min-height: 100dvh;
+    scroll-snap-align: start;
+    display: flex; flex-direction: column; justify-content: center;
+    padding: 92px clamp(22px, 6vw, 84px) 104px;
+    border-bottom: 1px solid var(--line);
+  }
+  .slide-inner { width: 100%; max-width: var(--maxw); margin: 0 auto; }
+
+  .eyebrow {
+    font-family: var(--f-mono); font-size: 12.5px; letter-spacing: .22em;
+    text-transform: uppercase; color: var(--speed);
+    display: flex; align-items: center; gap: 12px; margin-bottom: 20px;
+  }
+  .eyebrow .stage {
+    color: var(--ink); border: 1px solid var(--line-hi); padding: 2px 8px;
+    letter-spacing: .1em;
+  }
+  .eyebrow .ts { color: var(--ink-dim); letter-spacing: .1em; margin-left: auto; }
+
+  h1 {
+    font-family: var(--f-disp); font-weight: 800;
+    font-size: clamp(2.6rem, 7vw, 5.6rem); line-height: .96;
+    letter-spacing: -.01em; text-transform: uppercase; text-wrap: balance;
+  }
+  h2 {
+    font-family: var(--f-disp); font-weight: 700;
+    font-size: clamp(1.9rem, 4.6vw, 3.3rem); line-height: 1.02;
+    letter-spacing: .005em; text-transform: uppercase; text-wrap: balance;
+    margin-bottom: 26px;
+  }
+  h3 {
+    font-family: var(--f-mono); font-weight: 600; font-size: 13px;
+    letter-spacing: .16em; text-transform: uppercase; color: var(--ink-mid);
+    margin-bottom: 14px;
+  }
+  p { color: var(--ink-mid); max-width: 62ch; }
+  strong { color: var(--ink); font-weight: 600; }
+  .lead { font-size: clamp(1.05rem, 2.2vw, 1.4rem); color: var(--ink); max-width: 46ch; }
+
+  /* ---------- panels ---------- */
+  .grid { display: grid; gap: 18px; }
+  .cols-2 { grid-template-columns: 1fr 1fr; }
+  .cols-3 { grid-template-columns: repeat(3, 1fr); }
+  .cols-5-7 { grid-template-columns: 5fr 7fr; }
+  .cols-7-5 { grid-template-columns: 7fr 5fr; }
+  @media (max-width: 860px) {
+    .cols-2, .cols-3, .cols-5-7, .cols-7-5 { grid-template-columns: 1fr; }
+  }
+
+  .panel {
+    position: relative;
+    background: linear-gradient(180deg, var(--panel), var(--ground-2));
+    border: 1px solid var(--line);
+    padding: 22px 22px 24px;
+  }
+  /* broadcast corner brackets */
+  .panel::before, .panel::after {
+    content: ""; position: absolute; width: 12px; height: 12px; pointer-events: none;
+  }
+  .panel::before { top: -1px; left: -1px; border-top: 2px solid var(--speed); border-left: 2px solid var(--speed); }
+  .panel::after  { bottom: -1px; right: -1px; border-bottom: 2px solid var(--line-hi); border-right: 2px solid var(--line-hi); }
+
+  .panel.plain::before, .panel.plain::after { display: none; }
+
+  ul.ticks { list-style: none; display: flex; flex-direction: column; gap: 11px; }
+  ul.ticks li {
+    position: relative; padding-left: 20px; color: var(--ink-mid); font-size: 15.5px;
+  }
+  ul.ticks li::before {
+    content: ""; position: absolute; left: 0; top: .62em;
+    width: 9px; height: 2px; background: var(--speed);
+  }
+
+  ol.steps { list-style: none; counter-reset: s; display: flex; flex-direction: column; gap: 13px; }
+  ol.steps li {
+    position: relative; padding-left: 42px; min-height: 26px;
+    font-size: 15px; color: var(--ink-mid);
+  }
+  ol.steps li::before {
+    counter-increment: s; content: counter(s, decimal-leading-zero);
+    position: absolute; left: 0; top: 2px; width: 26px;
+    font-family: var(--f-mono); font-size: 12px; color: var(--speed);
+    border: 1px solid var(--line-hi); text-align: center; padding: 4px 0; line-height: 1;
+  }
+
+  /* ---------- timing-tower rows ---------- */
+  .tower { display: flex; flex-direction: column; gap: 6px; }
+  .row {
+    display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 14px;
+    background: var(--panel); border-left: 3px solid var(--line-hi);
+    padding: 12px 16px;
+  }
+  .row .pos { font-family: var(--f-mono); font-weight: 600; font-size: 14px; color: var(--ink-dim); }
+  .row .name { font-family: var(--f-disp); font-weight: 600; font-size: 1.15rem; text-transform: uppercase; letter-spacing: .02em; }
+  .row .val { font-family: var(--f-mono); font-size: 13.5px; color: var(--ink-mid); font-variant-numeric: tabular-nums; }
+  .row.gold  { border-left-color: var(--gold); }
+  .row.blue  { border-left-color: var(--blue); }
+  .row.grey  { border-left-color: var(--grey); }
+  .row.fastest { border-left-color: var(--purple); background: linear-gradient(90deg, rgba(180,75,232,.14), var(--panel) 55%); }
+  .row.fastest .name { color: #EBD1F7; }
+
+  /* ---------- bar chart (CSS) ---------- */
+  .bars { display: flex; flex-direction: column; gap: 9px; }
+  .bar { display: grid; grid-template-columns: 168px 1fr 58px; align-items: center; gap: 12px; }
+  .bar .lab { font-family: var(--f-mono); font-size: 12.5px; color: var(--ink-mid); text-align: right; }
+  .bar .track { background: var(--ground); border: 1px solid var(--line); height: 20px; position: relative; overflow: hidden; }
+  .bar .fill { position: absolute; inset: 0 auto 0 0; background: var(--line-hi); width: var(--w, 0%); transition: width .9s cubic-bezier(.2,.7,.2,1); }
+  .bar .fill.speed  { background: linear-gradient(90deg, var(--speed), #ff5b66); }
+  .bar .fill.purple { background: linear-gradient(90deg, var(--purple), #cf7cf0); }
+  .bar .fill.blue   { background: linear-gradient(90deg, var(--blue), #79b0ea); }
+  .bar .fill.gold   { background: linear-gradient(90deg, var(--gold), #f0d073); }
+  .bar .fill.grey   { background: linear-gradient(90deg, var(--grey), #9aa6b2); }
+  .bar .num { font-family: var(--f-mono); font-size: 12.5px; color: var(--ink); font-variant-numeric: tabular-nums; }
+  @media (prefers-reduced-motion: reduce) { .bar .fill { transition: none; } }
+  @media (max-width: 560px) { .bar { grid-template-columns: 110px 1fr 50px; } .bar .lab { font-size: 11px; } }
+
+  /* ---------- stat blocks ---------- */
+  .stat { background: var(--panel); border: 1px solid var(--line); padding: 20px; }
+  .stat .big { font-family: var(--f-disp); font-weight: 800; font-size: clamp(2.2rem, 5vw, 3.1rem); line-height: 1; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .stat .cap { font-family: var(--f-mono); font-size: 11.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-dim); margin-top: 8px; }
+  .stat .big.speed { color: var(--speed); }
+  .stat .big.purple { color: var(--purple); }
+
+  /* ---------- chips ---------- */
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    font-family: var(--f-mono); font-size: 12.5px; color: var(--ink-mid);
+    border: 1px solid var(--line-hi); padding: 6px 11px; background: var(--panel);
+  }
+  .chip b { color: var(--ink); font-weight: 600; }
+  .chip .k { color: var(--speed); }
+
+  /* ---------- mono code / tree ---------- */
+  pre {
+    font-family: var(--f-mono); font-size: 13px; line-height: 1.75;
+    color: var(--ink-mid); background: var(--ground); border: 1px solid var(--line);
+    padding: 18px; overflow-x: auto;
+  }
+  pre .c { color: var(--ink); }
+  pre .m { color: var(--speed); }
+
+  /* ---------- start lights (slide 0) ---------- */
+  .lights { display: flex; gap: clamp(8px, 2vw, 18px); margin: 30px 0 26px; }
+  .light-box {
+    width: clamp(44px, 9vw, 72px); background: #05070A; border: 1px solid var(--line);
+    padding: 8px; display: flex; flex-direction: column; gap: 7px;
+  }
+  .lamp {
+    aspect-ratio: 1; border-radius: 50%; background: #2a0206;
+    box-shadow: inset 0 0 6px rgba(0,0,0,.8);
+    opacity: .5;
+    animation: lampOn .3s ease var(--d, 0s) forwards;
+  }
+  @keyframes lampOn {
+    to { opacity: 1; background: radial-gradient(circle at 40% 35%, #ff8088, var(--speed) 55%, #7a0a12);
+         box-shadow: 0 0 16px 2px rgba(255,30,45,.55), inset 0 0 6px rgba(0,0,0,.5); }
+  }
+  .go-text {
+    font-family: var(--f-mono); font-size: 12px; letter-spacing: .3em; color: var(--green);
+    opacity: 0; animation: goIn .5s ease 2.7s forwards;
+  }
+  @keyframes goIn { to { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) {
+    .lamp { animation: none; opacity: 1;
+      background: radial-gradient(circle at 40% 35%, #ff8088, var(--speed) 55%, #7a0a12);
+      box-shadow: 0 0 12px 1px rgba(255,30,45,.4); }
+    .go-text { animation: none; opacity: 1; }
+  }
+
+  /* agenda */
+  .agenda { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 20px; margin-top: 8px; }
+  @media (max-width: 760px) { .agenda { grid-template-columns: 1fr; } }
+  .agenda a {
+    display: grid; grid-template-columns: 34px 1fr auto; align-items: baseline; gap: 12px;
+    padding: 9px 4px; border-bottom: 1px solid var(--line); text-decoration: none;
+    color: var(--ink-mid); transition: all .15s;
+  }
+  .agenda a:hover { color: var(--ink); border-color: var(--speed); padding-left: 8px; }
+  .agenda a .n { font-family: var(--f-mono); font-size: 12px; color: var(--speed); }
+  .agenda a .t { font-family: var(--f-disp); font-weight: 600; font-size: 1.12rem; text-transform: uppercase; letter-spacing: .015em; }
+  .agenda a .tm { font-family: var(--f-mono); font-size: 11.5px; color: var(--ink-dim); }
+
+  /* app mock (slide 06) */
+  .mock { background: var(--ground); border: 1px solid var(--line-hi); }
+  .mock .bar-top { display: flex; gap: 6px; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+  .mock .bar-top i { width: 9px; height: 9px; border-radius: 50%; background: var(--line-hi); display: block; }
+  .mock .body { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+  .badge {
+    font-family: var(--f-disp); font-weight: 800; font-size: 1.5rem; text-transform: uppercase;
+    letter-spacing: .04em; text-align: center; padding: 16px; color: #1a1206;
+    background: linear-gradient(180deg, #f0d073, var(--gold)); border: 1px solid #f6dd8f;
+  }
+  .pbar { display: grid; grid-template-columns: 96px 1fr 42px; gap: 10px; align-items: center; font-family: var(--f-mono); font-size: 12px; color: var(--ink-mid); }
+  .pbar .pt { background: var(--panel); border: 1px solid var(--line); height: 14px; position: relative; }
+  .pbar .pf { position: absolute; inset: 0 auto 0 0; }
+
+  .footnote { font-family: var(--f-mono); font-size: 12px; color: var(--ink-dim); margin-top: 20px; letter-spacing: .04em; }
+  .callout {
+    border-left: 3px solid var(--purple); background: rgba(180,75,232,.08);
+    padding: 14px 18px; color: var(--ink); font-size: 15px; margin-top: 4px;
+  }
+  .callout b { color: #EBD1F7; }
+
+  .skip {
+    position: fixed; top: -60px; left: 12px; z-index: 60; background: var(--speed); color: #fff;
+    padding: 8px 14px; font-family: var(--f-mono); font-size: 13px; transition: top .15s;
+  }
+  .skip:focus { top: 12px; }
+</style>
+
+<a class="skip" href="#s8">Pular para a conclusão</a>
+<div class="bg-tex" aria-hidden="true"></div>
+<div class="rail" aria-hidden="true"></div>
+
+<div class="hud" aria-hidden="true">
+  <span class="live"><span class="dot"></span>LIVE</span>
+  <span>P<span class="count" id="hudN">01</span>/09</span>
+</div>
+
+<nav class="nav" aria-label="Navegação dos slides">
+  <button id="prev" aria-label="Slide anterior">&#9650;</button>
+  <div class="dots" id="dots"></div>
+  <button id="next" aria-label="Próximo slide">&#9660;</button>
+  <span class="hint">↑ ↓ · espaço</span>
+</nav>
+
+<main>
+
+  <!-- ================= 0 · GRID / TÍTULO ================= -->
+  <section class="slide" id="s0">
+    <div class="slide-inner reveal">
+      <div class="eyebrow">Portfólio · Ciência de Dados <span class="ts">vídeo 0:03</span></div>
+      <h1>F1 Race<br>Position Predictor</h1>
+      <div class="lights" aria-hidden="true">
+        <div class="light-box"><span class="lamp" style="--d:0s"></span><span class="lamp" style="--d:0s"></span></div>
+        <div class="light-box"><span class="lamp" style="--d:.5s"></span><span class="lamp" style="--d:.5s"></span></div>
+        <div class="light-box"><span class="lamp" style="--d:1s"></span><span class="lamp" style="--d:1s"></span></div>
+        <div class="light-box"><span class="lamp" style="--d:1.5s"></span><span class="lamp" style="--d:1.5s"></span></div>
+        <div class="light-box"><span class="lamp" style="--d:2s"></span><span class="lamp" style="--d:2s"></span></div>
+      </div>
+      <p class="go-text">LIGHTS OUT — E LÁ VAMOS NÓS</p>
+      <p class="lead" style="margin-top:14px">Um modelo de machine learning que prevê, <strong>antes da largada</strong>, em que faixa de resultado cada piloto vai terminar a corrida.</p>
+
+      <h3 style="margin-top:40px">Agenda</h3>
+      <div class="agenda">
+        <a href="#s1"><span class="n">01</span><span class="t">Problema &amp; Objetivos</span><span class="tm">0:46</span></a>
+        <a href="#s2"><span class="n">02</span><span class="t">Conjunto de Dados</span><span class="tm">1:36</span></a>
+        <a href="#s3"><span class="n">03</span><span class="t">Pré-processamento &amp; EDA</span><span class="tm">2:19</span></a>
+        <a href="#s4"><span class="n">04</span><span class="t">Modelo de Machine Learning</span><span class="tm">3:29</span></a>
+        <a href="#s5"><span class="n">05</span><span class="t">Resultados &amp; Feature Importance</span><span class="tm">4:18</span></a>
+        <a href="#s6"><span class="n">06</span><span class="t">Front-end · Streamlit</span><span class="tm">5:01</span></a>
+        <a href="#s7"><span class="n">07</span><span class="t">Stack &amp; Estrutura</span><span class="tm">5:58</span></a>
+        <a href="#s8"><span class="n">08</span><span class="t">Conclusão &amp; Escopo Futuro</span><span class="tm">6:31</span></a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 1 · PROBLEMA ================= -->
+  <section class="slide" id="s1">
+    <div class="slide-inner reveal">
+      <div class="eyebrow"><span class="stage">01</span> Declaração do Problema <span class="ts">0:46 – 1:31</span></div>
+      <h2>Três faixas de resultado,<br>não a posição exata</h2>
+      <div class="grid cols-7-5">
+        <div class="tower">
+          <div class="row gold"><span class="pos">P1–3</span><span class="name">Podium</span><span class="val">subiu ao pódio</span></div>
+          <div class="row blue"><span class="pos">P4–10</span><span class="name">Points</span><span class="val">pontuou</span></div>
+          <div class="row grey"><span class="pos">P11+</span><span class="name">Out of Points</span><span class="val">fora dos pontos / abandonou</span></div>
+        </div>
+        <div class="panel">
+          <h3>Por que não prever a posição exata?</h3>
+          <ul class="ticks">
+            <li>Corrida tem muito acaso: <strong>safety car, chuva, batidas, estratégia de pit stop</strong>.</li>
+            <li>Prever “P7 exatamente” daria acurácia baixíssima — modelo inútil.</li>
+            <li>Agrupar em 3 faixas captura o que importa (“esse piloto pontua?”) e torna o problema <strong>aprendível</strong>.</li>
+          </ul>
+        </div>
+      </div>
+      <p class="footnote">Classificação multiclasse · alvo derivado de <span style="color:var(--ink)">positionOrder</span> (classificação oficial da corrida).</p>
+    </div>
+  </section>
+
+  <!-- ================= 2 · DATASET ================= -->
+  <section class="slide" id="s2">
+    <div class="slide-inner reveal">
+      <div class="eyebrow"><span class="stage">02</span> Visão Geral dos Dados <span class="ts">1:36 – 2:18</span></div>
+      <h2>Formula 1 World Championship<br>· 1950 – 2024 · Kaggle</h2>
+      <p>Espelho da antiga <strong>API Ergast</strong> (descontinuada). Recorte de trabalho: a <strong>era moderna, 2000–2024</strong> — período em que o esporte é razoavelmente comparável de um ano para o outro.</p>
+      <div class="grid cols-3" style="margin:22px 0">
+        <div class="stat"><div class="big">10 079</div><div class="cap">linhas piloto × corrida</div></div>
+        <div class="stat"><div class="big">479</div><div class="cap">corridas (2000–2024)</div></div>
+        <div class="stat"><div class="big">25</div><div class="cap">temporadas</div></div>
+      </div>
+      <h3>7 tabelas, unidas pelas chaves</h3>
+      <div class="chips">
+        <span class="chip"><b>races</b> <span class="k">raceId · circuitId</span></span>
+        <span class="chip"><b>results</b> <span class="k">raceId · driverId · constructorId</span></span>
+        <span class="chip"><b>qualifying</b> <span class="k">raceId · driverId</span></span>
+        <span class="chip"><b>drivers</b> <span class="k">driverId</span></span>
+        <span class="chip"><b>constructors</b> <span class="k">constructorId</span></span>
+        <span class="chip"><b>circuits</b> <span class="k">circuitId</span></span>
+        <span class="chip"><b>status</b> <span class="k">statusId</span></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 3 · PRÉ-PROCESSAMENTO & EDA ================= -->
+  <section class="slide" id="s3">
+    <div class="slide-inner reveal">
+      <div class="eyebrow"><span class="stage">03</span> Pré-processamento &amp; EDA <span class="ts">2:19 – 3:26</span></div>
+      <h2>Preparar os dados<br>sem vazar o futuro</h2>
+      <div class="grid cols-5-7">
+        <ol class="steps">
+          <li>Recorte da <strong>era moderna</strong> (2000–2024).</li>
+          <li><strong>DNFs (~23%)</strong>: mantidos — um abandono é um resultado real (“Out of Points”); flag <span style="color:var(--ink);font-family:var(--f-mono)">finished</span> acompanha o efeito.</li>
+          <li><strong>Nulos</strong>: <span style="font-family:var(--f-mono)">grid = 0</span> (pit lane) → P20; tempo de quali ausente → fallback para o grid.</li>
+          <li><strong>Label Encoding</strong>: driver · constructor · circuit · nationality.</li>
+          <li><strong>Split estratificado 80/20</strong> — mantém a proporção das 3 classes em treino e teste.</li>
+        </ol>
+        <div class="panel">
+          <h3>Distribuição das classes — desbalanceada</h3>
+          <div class="bars">
+            <div class="bar"><span class="lab">Out of Points</span><span class="track"><span class="fill grey" style="--w:52.5%"></span></span><span class="num">52.5%</span></div>
+            <div class="bar"><span class="lab">Points</span><span class="track"><span class="fill blue" style="--w:33.3%"></span></span><span class="num">33.3%</span></div>
+            <div class="bar"><span class="lab">Podium</span><span class="track"><span class="fill gold" style="--w:14.3%"></span></span><span class="num">14.3%</span></div>
+          </div>
+          <div class="callout" style="border-left-color:var(--speed);background:rgba(255,30,45,.08)">
+            São 3 vagas de pódio para ~20 carros → o modelo precisa de <b style="color:#ffd4d7">class_weight="balanced"</b> para não ignorar a classe rara.
+          </div>
+        </div>
+      </div>
+      <p class="footnote">Anti-leakage: toda feature de histórico usa <span style="color:var(--ink)">groupby(...).shift()</span> antes da janela móvel — a corrida atual nunca entra no próprio cálculo.</p>
+    </div>
+  </section>
+
+  <!-- ================= 4 · MODELO ================= -->
+  <section class="slide" id="s4">
+    <div class="slide-inner reveal">
+      <div class="eyebrow"><span class="stage">04</span> Modelo de Machine Learning <span class="ts">3:29 – 4:15</span></div>
+      <h2>Random Forest Classifier</h2>
+      <div class="chips" style="margin-bottom:20px">
+        <span class="chip"><span class="k">n_estimators</span> = <b>200</b></span>
+        <span class="chip"><span class="k">max_depth</span> = <b>12</b></span>
+        <span class="chip"><span class="k">class_weight</span> = <b>balanced</b></span>
+        <span class="chip"><span class="k">random_state</span> = <b>42</b></span>
+      </div>
+      <div class="grid cols-2">
+        <div class="panel">
+          <h3>Como funciona</h3>
+          <p>200 árvores de decisão. Cada uma vê uma <strong>amostra aleatória das linhas</strong> e, em cada divisão, um <strong>subconjunto aleatório das features</strong>. A previsão final é o <strong>voto da maioria</strong>. Como as árvores erram de formas diferentes, a média dos erros cai — generaliza melhor que uma árvore sozinha.</p>
+        </div>
+        <div class="panel">
+          <h3>Por que essa escolha</h3>
+          <ul class="ticks">
+            <li>Lida bem com <strong>dados mistos</strong> (numéricos + categóricos codificados).</li>
+            <li>Captura <strong>interações</strong> automaticamente — ex.: “largar em P2” vale mais em Mônaco.</li>
+            <li>Sem necessidade de normalizar; robusto a escalas diferentes.</li>
+            <li>Entrega <strong>feature importance</strong> de graça.</li>
+          </ul>
+        </div>
+      </div>
+      <p class="footnote">Baseline de comparação: <span style="color:var(--ink)">Regressão Logística</span> (StandardScaler + class_weight balanced) — se o RF não superar, a complexidade não se justifica.</p>
+    </div>
+  </section>
+
+  <!-- ================= 5 · RESULTADOS ================= -->
+  <section class="slide" id="s5">
+    <div class="slide-inner reveal">
+      <div class="eyebrow"><span class="stage">05</span> Resultados &amp; Feature Importance <span class="ts">4:18 – 5:00</span></div>
+      <h2>~68% de acurácia —<br>largada e equipe decidem</h2>
+      <div class="grid cols-2">
+        <div>
+          <h3>Acurácia no conjunto de teste</h3>
+          <div class="tower">
+            <div class="row grey"><span class="pos">—</span><span class="name">Chute trivial</span><span class="val">52.5%</span></div>
+            <div class="row blue"><span class="pos">LR</span><span class="name">Regressão Logística</span><span class="val">66.9%</span></div>
+            <div class="row fastest"><span class="pos">RF</span><span class="name">Random Forest</span><span class="val">67.9% &nbsp;·&nbsp; Δ +1.0 pp</span></div>
+          </div>
+          <p class="footnote">Validação cruzada 5-fold: <span style="color:var(--ink)">65.9% ± 3.5%</span> — número estável.<br>F1 por classe (RF): Podium <span style="color:var(--gold)">0.69</span> · Points <span style="color:var(--blue)">0.60</span> · Out of Points <span style="color:var(--grey)">0.74</span>.</p>
+        </div>
+        <div class="panel">
+          <h3>Feature importance — Random Forest</h3>
+          <div class="bars">
+            <div class="bar"><span class="lab">quali_position</span><span class="track"><span class="fill speed" style="--w:100%"></span></span><span class="num">.167</span></div>
+            <div class="bar"><span class="lab">grid</span><span class="track"><span class="fill speed" style="--w:99%"></span></span><span class="num">.165</span></div>
+            <div class="bar"><span class="lab">quali_time_gap</span><span class="track"><span class="fill purple" style="--w:64%"></span></span><span class="num">.107</span></div>
+            <div class="bar"><span class="lab">constructor_form</span><span class="track"><span class="fill purple" style="--w:64%"></span></span><span class="num">.107</span></div>
+            <div class="bar"><span class="lab">constructor_season_pts</span><span class="track"><span class="fill purple" style="--w:63%"></span></span><span class="num">.105</span></div>
+            <div class="bar"><span class="lab">recent_form</span><span class="track"><span class="fill" style="--w:47%"></span></span><span class="num">.079</span></div>
+            <div class="bar"><span class="lab">driver_experience</span><span class="track"><span class="fill" style="--w:33%"></span></span><span class="num">.054</span></div>
+            <div class="bar"><span class="lab">year</span><span class="track"><span class="fill" style="--w:27%"></span></span><span class="num">.045</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="callout">
+        <b>Largada</b> (grid + classificação) e <b>força da equipe</b> (construtor) somam <b>mais de 55%</b> do poder preditivo — ~68% incluindo o gap de tempo de classificação. Onde o modelo mais erra: a classe <b>“Points”</b>, o meio do grid, decidido <em>durante</em> a corrida.
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 6 · FRONT-END ================= -->
+  <section class="slide" id="s6">
+    <div class="slide-inner reveal">
+      <div class="eyebrow"><span class="stage">06</span> Front-end <span class="ts">5:01 – 5:55</span></div>
+      <h2>App interativo · Streamlit</h2>
+      <div class="grid cols-7-5">
+        <div>
+          <ul class="ticks">
+            <li><strong>Sidebar</strong> para escolher as variáveis de entrada (piloto, equipe, circuito, grid, forma recente…).</li>
+            <li><strong>Badge colorido</strong> com a previsão — ouro (pódio) / azul (pontos) / cinza (fora).</li>
+            <li>Gráfico <strong>Plotly</strong> de probabilidade por posição de largada.</li>
+            <li>Gráfico de <strong>feature importance</strong> do modelo carregado.</li>
+          </ul>
+          <pre style="margin-top:18px"><span class="m">$</span> streamlit run app.py</pre>
+          <p class="footnote">O app carrega <span style="color:var(--ink)">f1_model.pkl</span> — modelo + encoders + lista de features — sem repetir o pipeline.</p>
+        </div>
+        <div class="mock">
+          <div class="bar-top"><i></i><i></i><i></i></div>
+          <div class="body">
+            <div class="badge">🏆 Pódio · P1–P3</div>
+            <div class="pbar"><span>Podium</span><span class="pt"><span class="pf" style="width:73%;background:var(--gold)"></span></span><span>73%</span></div>
+            <div class="pbar"><span>Points</span><span class="pt"><span class="pf" style="width:23%;background:var(--blue)"></span></span><span>23%</span></div>
+            <div class="pbar"><span>Out of Pts</span><span class="pt"><span class="pf" style="width:4%;background:var(--grey)"></span></span><span>4%</span></div>
+            <p class="footnote" style="margin:2px 0 0">Hamilton · Mercedes · Mônaco · larga em P3</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 7 · STACK & ESTRUTURA ================= -->
+  <section class="slide" id="s7">
+    <div class="slide-inner reveal">
+      <div class="eyebrow"><span class="stage">07</span> Stack &amp; Estrutura do Projeto <span class="ts">5:58 – 6:30</span></div>
+      <h2>Stack tecnológico</h2>
+      <div class="grid cols-2">
+        <div>
+          <div class="chips" style="gap:10px">
+            <span class="chip"><b>pandas</b> · numpy</span>
+            <span class="chip"><b>scikit-learn</b></span>
+            <span class="chip"><b>pickle</b></span>
+            <span class="chip"><b>matplotlib</b></span>
+            <span class="chip"><b>plotly</b></span>
+            <span class="chip"><b>streamlit</b></span>
+          </div>
+          <h3 style="margin-top:26px">Pipeline</h3>
+          <p style="font-family:var(--f-mono);font-size:13px;color:var(--ink-mid);line-height:2">
+            dados → join → limpeza → EDA → <span style="color:var(--speed)">feature engineering</span> → split → modelo → avaliação → pickle
+          </p>
+        </div>
+        <div class="panel plain">
+          <h3>Estrutura</h3>
+<pre><span class="c">f1-race-position-predictor/</span>
+├── notebook.ipynb      <span class="m">análise completa</span>
+├── README.md
+├── entrevista.md       <span class="m">guia de entrevista</span>
+├── app.py              <span class="m">Streamlit</span>
+├── requirements.txt
+├── f1_model.pkl        <span class="m">modelo treinado</span>
+└── data/               <span class="m">CSVs do Kaggle</span></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 8 · CONCLUSÃO ================= -->
+  <section class="slide" id="s8">
+    <div class="slide-inner reveal">
+      <div class="eyebrow"><span class="stage">08</span> Conclusão &amp; Escopo Futuro <span class="ts">6:31 – 7:08</span></div>
+      <h2>Um pipeline completo,<br>de 7 tabelas a uma previsão</h2>
+      <div class="grid cols-2">
+        <div class="panel">
+          <h3>Limitações — o que o modelo não vê</h3>
+          <ul class="ticks">
+            <li>Safety car e bandeira vermelha</li>
+            <li>Clima da corrida (chuva)</li>
+            <li>Batidas e colisões</li>
+            <li>Estratégia de pit stop</li>
+            <li>Ritmo de corrida vs. ritmo de classificação</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Escopo futuro</h3>
+          <ul class="ticks">
+            <li>Dados de <strong>clima</strong> por corrida</li>
+            <li><strong>Tempos de volta</strong> de treino livre e classificação</li>
+            <li>Testar <strong>XGBoost / LightGBM</strong></li>
+            <li>Histórico do piloto <strong>naquele circuito</strong></li>
+            <li><strong>Split temporal</strong> + probabilidades calibradas</li>
+          </ul>
+        </div>
+      </div>
+      <p class="lead" style="margin-top:28px">Random Forest de 3 classes · <strong>~68% de acurácia</strong> · a posição de largada e a força da equipe explicam a maior parte do resultado.</p>
+      <!-- Adicione aqui seu nome e contato: -->
+      <p class="footnote" style="margin-top:26px">Portfólio · Ciência de Dados · F1 Race Position Predictor</p>
+    </div>
+  </section>
+
+</main>
+
+<script>
+  (function () {
+    var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+    var reveals = Array.prototype.slice.call(document.querySelectorAll('.reveal'));
+    function revealAll() { reveals.forEach(function (r) { r.classList.add('in'); }); }
+    // safety net: if anything below throws or IO is unavailable, show everything
+    if (!('IntersectionObserver' in window)) { revealAll(); }
+    setTimeout(function () {
+      reveals.forEach(function (r) {
+        var t = r.getBoundingClientRect().top;
+        if (t < window.innerHeight * 1.5) r.classList.add('in');
+      });
+    }, 400);
+    window.addEventListener('error', revealAll);
+
+    var dotsWrap = document.getElementById('dots');
+    var hudN = document.getElementById('hudN');
+    var current = 0;
+
+    slides.forEach(function (s, i) {
+      var d = document.createElement('i');
+      d.setAttribute('role', 'button');
+      d.setAttribute('aria-label', 'Ir para o slide ' + (i + 1));
+      d.tabIndex = 0;
+      d.addEventListener('click', function () { go(i); });
+      d.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(i); } });
+      dotsWrap.appendChild(d);
+    });
+    var dots = Array.prototype.slice.call(dotsWrap.children);
+
+    function paint() {
+      dots.forEach(function (d, i) { d.classList.toggle('on', i === current); });
+      hudN.textContent = String(current + 1).padStart(2, '0');
+    }
+    function go(i) {
+      current = Math.max(0, Math.min(slides.length - 1, i));
+      slides[current].scrollIntoView({ behavior: 'smooth', block: 'start' });
+      paint();
+    }
+
+    document.getElementById('prev').addEventListener('click', function () { go(current - 1); });
+    document.getElementById('next').addEventListener('click', function () { go(current + 1); });
+
+    window.addEventListener('keydown', function (e) {
+      if (['ArrowDown', 'PageDown', ' ', 'ArrowRight'].indexOf(e.key) > -1) { e.preventDefault(); go(current + 1); }
+      else if (['ArrowUp', 'PageUp', 'ArrowLeft'].indexOf(e.key) > -1) { e.preventDefault(); go(current - 1); }
+      else if (e.key === 'Home') { e.preventDefault(); go(0); }
+      else if (e.key === 'End') { e.preventDefault(); go(slides.length - 1); }
+    });
+
+    try {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) {
+          if (en.isIntersecting) {
+            var rv = en.target.querySelector('.reveal');
+            if (rv) rv.classList.add('in');
+            var idx = slides.indexOf(en.target);
+            if (idx > -1 && en.intersectionRatio > 0.55) { current = idx; paint(); }
+          }
+        });
+      }, { threshold: [0.15, 0.55, 0.9] });
+      slides.forEach(function (s) { io.observe(s); });
+    } catch (err) { revealAll(); }
+
+    paint();
+  })();
+</script>
+
+<style>
+  /* subtle entrance — content is ALWAYS readable; .in only refines it */
+  .reveal { opacity: 1; transform: none; transition: opacity .5s ease, transform .5s ease; }
+  .reveal:not(.in) { opacity: .82; }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal, .reveal:not(.in) { opacity: 1 !important; transform: none !important; transition: none; }
+  }
+</style>

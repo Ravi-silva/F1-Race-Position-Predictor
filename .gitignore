@@ -1,0 +1,10 @@
+data/
+*.pkl
+.venv/
+__pycache__/
+.ipynb_checkpoints/
+.DS_Store
+
+# arquivos pessoais / de ambiente local
+entrevista.md
+*.code-workspace
